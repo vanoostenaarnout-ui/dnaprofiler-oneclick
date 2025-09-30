@@ -3,169 +3,190 @@ set -euo pipefail
 
 # ------------------------------------------------------------
 # DNA Profiler / ER Engine — one-click Cloud Run deploy
-# Usage (typical):
-#   ./deploy/oneclick.sh -p YOUR-PROJECT -r europe-west3 -s erengine \
-#     -i gcr.io/the-tree-beneath-400715/erengine:latest --allow-unauth
-#
-# Or build from source (Dockerfile in repo):
-#   ./deploy/oneclick.sh -p YOUR-PROJECT -r europe-west3 -s erengine --build
-#
-# Optionally pass a license value at deploy time:
-#   ./deploy/oneclick.sh ... -l "YOUR-LICENSE-STRING"
+# Examples:
+#   ./oneclick.sh -p YOUR-PROJECT -r europe-west3 -s dnaprofiler \
+#     -i ghcr.io/dnahub/erengine:latest
+#   PROJECT_ID=YOUR-PROJECT ./oneclick.sh                # env fallback
+#   ./oneclick.sh --build                                # build in GCP (Cloud Build + Artifact Registry)
+#   ./oneclick.sh -l "YOUR-LICENSE-STRING"               # store license in Secret Manager
 # ------------------------------------------------------------
 
-PROJECT_ID="$(gcloud config get-value project 2>/dev/null || true)"
+# Defaults / current config fallbacks
+PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 REGION="${REGION:-europe-west3}"
-SERVICE="erengine"
-IMAGE=""            # e.g. gcr.io/public-project/erengine:latest
-LICENSE_VALUE=""    # if provided, we'll create/overwrite the secret
-ALLOW_UNAUTH=false
-BUILD_IMAGE=false
-REPO="apps"         # Artifact Registry repo name if building
-CPU="1"
-MEM="512Mi"
-CONCURRENCY="80"
-MIN_INSTANCES="0"
-MAX_INSTANCES="3"
-PORT="8080"
-SECRET_NAME="dna-profiler-license"
+SERVICE="${SERVICE:-dnaprofiler}"
+
+IMAGE="${IMAGE:-ghcr.io/dnahub/erengine:latest}"   # override with -i if you have a different image
+LICENSE_VALUE="${LICENSE_VALUE:-}"                 # -l to set via Secret Manager
+SECRET_NAME="${SECRET_NAME:-dna-profiler-license}"
+
+ALLOW_UNAUTH="${ALLOW_UNAUTH:-false}"
+BUILD_IMAGE="${BUILD_IMAGE:-false}"
+
+REPO="${REPO:-apps}"          # Artifact Registry repo (when --build)
+CPU="${CPU:-1}"
+MEM="${MEM:-512Mi}"
+CONCURRENCY="${CONCURRENCY:-80}"
+MIN_INSTANCES="${MIN_INSTANCES:-0}"
+MAX_INSTANCES="${MAX_INSTANCES:-3}"
+PORT="${PORT:-8080}"
+TIMEOUT="${TIMEOUT:-900s}"
+ENV_VARS="${ENV_VARS:-}"      # e.g. ENV_VARS="LOG_LEVEL=info,FEATURE_X=true"
 
 usage() {
   cat <<EOF
-Usage: $0 -p PROJECT_ID -r REGION -s SERVICE [options]
+Usage: $0 [options]
 
-Required:
-  -p  GCP project id
-  -r  Region (default: ${REGION})
-  -s  Cloud Run service name (default: ${SERVICE})
+Required (if not auto-detected):
+  -p, --project        GCP project id
+Optional:
+  -r, --region         Region (default: ${REGION})
+  -s, --service        Cloud Run service name (default: ${SERVICE})
+  -i, --image          Container image to deploy (default: ${IMAGE})
+  -l, --license        License string to store as Secret Manager secret (${SECRET_NAME})
+      --allow-unauth   Allow unauthenticated (public) access [default: false]
+      --build          Build image with Cloud Build into Artifact Registry (${REPO})
+      --cpu N          vCPU (default: ${CPU})
+      --mem SIZE       Memory (default: ${MEM})
+      --concurrency N  Max requests per instance (default: ${CONCURRENCY})
+      --min N          Min instances (default: ${MIN_INSTANCES})
+      --max N          Max instances (default: ${MAX_INSTANCES})
+      --port N         Container port (default: ${PORT})
+      --timeout D      Request timeout (default: ${TIMEOUT})
+      --env K=V,...    Extra env vars (comma-separated)
+  -h, --help           Show this help
 
-Options:
-  -i  Container image to deploy (skips build if set)
-  -l  License value to store in Secret Manager (${SECRET_NAME})
-  --allow-unauth       Make service public (no auth)
-  --build              Build image from the repo Dockerfile into Artifact Registry
-  --cpu N              vCPU (default: ${CPU})
-  --mem SIZE           Memory (default: ${MEM})
-  --concurrency N      Concurrency (default: ${CONCURRENCY})
-  --min N              Min instances (default: ${MIN_INSTANCES})
-  --max N              Max instances (default: ${MAX_INSTANCES})
-  --port N             Container port (default: ${PORT})
-  -h, --help           Show help
+Env fallbacks: PROJECT_ID, REGION, SERVICE, IMAGE, LICENSE_VALUE, SECRET_NAME, ALLOW_UNAUTH, CPU, MEM, CONCURRENCY, MIN_INSTANCES, MAX_INSTANCES, PORT, TIMEOUT, ENV_VARS
 EOF
-  exit 1
 }
 
-# parse args
+# -------- arg parse (supports long flags) --------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -p) PROJECT_ID="$2"; shift 2;;
-    -r) REGION="$2"; shift 2;;
-    -s) SERVICE="$2"; shift 2;;
-    -i) IMAGE="$2"; shift 2;;
-    -l) LICENSE_VALUE="$2"; shift 2;;
-    --allow-unauth) ALLOW_UNAUTH=true; shift;;
-    --build) BUILD_IMAGE=true; shift;;
-    --cpu) CPU="$2"; shift 2;;
-    --mem) MEM="$2"; shift 2;;
-    --concurrency) CONCURRENCY="$2"; shift 2;;
-    --min) MIN_INSTANCES="$2"; shift 2;;
-    --max) MAX_INSTANCES="$2"; shift 2;;
-    --port) PORT="$2"; shift 2;;
-    -h|--help) usage;;
-    *) echo "Unknown arg: $1"; usage;;
+    -p|--project)        PROJECT_ID="$2"; shift 2;;
+    -r|--region)         REGION="$2"; shift 2;;
+    -s|--service)        SERVICE="$2"; shift 2;;
+    -i|--image)          IMAGE="$2"; shift 2;;
+    -l|--license)        LICENSE_VALUE="$2"; shift 2;;
+        --allow-unauth|--allow-unauthenticated) ALLOW_UNAUTH=true; shift 1;;
+        --build)         BUILD_IMAGE=true; shift 1;;
+        --cpu)           CPU="$2"; shift 2;;
+        --mem|--memory)  MEM="$2"; shift 2;;
+        --concurrency)   CONCURRENCY="$2"; shift 2;;
+        --min)           MIN_INSTANCES="$2"; shift 2;;
+        --max)           MAX_INSTANCES="$2"; shift 2;;
+        --port)          PORT="$2"; shift 2;;
+        --timeout)       TIMEOUT="$2"; shift 2;;
+        --env|--set-env) ENV_VARS="$2"; shift 2;;
+    -h|--help)           usage; exit 0;;
+    *) echo "Unknown option: $1"; usage; exit 2;;
   esac
 done
 
-if [[ -z "${PROJECT_ID}" ]]; then
-  echo "ERROR: project id not set (-p)."
-  usage
-fi
+say(){ printf "%b\n" "$*"; }
+hr(){ printf "%s\n" "----------------------------------------"; }
 
-echo ">>> Project: ${PROJECT_ID}"
-echo ">>> Region : ${REGION}"
-echo ">>> Service: ${SERVICE}"
+need_cmd(){ command -v "$1" >/dev/null 2>&1 || { echo "Missing command: $1"; exit 127; }; }
+need_cmd gcloud
+
+# Auto-prompt for project if still empty
+if [[ -z "${PROJECT_ID:-}" || "${PROJECT_ID}" == "(unset)" ]]; then
+  say "No PROJECT_ID detected."
+  mapfile -t PROJS < <(gcloud projects list --format="value(projectId)")
+  if [[ "${#PROJS[@]}" -eq 0 ]]; then
+    say "⚠️  No projects available. Please create one (or run ./start.sh)."
+    exit 2
+  fi
+  if [[ "${#PROJS[@]}" -eq 1 ]]; then
+    PROJECT_ID="${PROJS[0]}"
+    say "Using your only project: ${PROJECT_ID}"
+  else
+    say "Select a project:"
+    for i in "${!PROJS[@]}"; do printf "%2d) %s\n" "$((i+1))" "${PROJS[$i]}"; done
+    read -rp "Choice [1-${#PROJS[@]}]: " sel
+    PROJECT_ID="${PROJS[$((sel-1))]}"
+  fi
+fi
 
 gcloud config set project "${PROJECT_ID}" >/dev/null
 
-echo ">>> Enabling required APIs (idempotent)..."
+# Enable required APIs (idempotent)
+hr
+say "Enabling required services on ${PROJECT_ID} (may take ~1–2 min)..."
 gcloud services enable \
   run.googleapis.com \
   artifactregistry.googleapis.com \
-  secretmanager.googleapis.com \
   cloudbuild.googleapis.com \
-  logging.googleapis.com \
   --project "${PROJECT_ID}"
 
-SA_NAME="${SERVICE}-sa"
-SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-if ! gcloud iam service-accounts describe "${SA_EMAIL}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
-  echo ">>> Creating service account: ${SA_EMAIL}"
-  gcloud iam service-accounts create "${SA_NAME}" \
-    --display-name "${SERVICE} runtime" \
-    --project "${PROJECT_ID}"
+# Optional: build image via Cloud Build into Artifact Registry
+if [[ "${BUILD_IMAGE}" == "true" ]]; then
+  hr
+  say "Building container via Cloud Build → Artifact Registry (${REPO}) in ${REGION}..."
+  # Create repo if missing
+  gcloud artifacts repositories describe "${REPO}" --location="${REGION}" >/dev/null 2>&1 \
+    || gcloud artifacts repositories create "${REPO}" --repository-format=docker --location="${REGION}" --description="DNA Profiler apps"
+  TAG="$(date +%Y%m%d%H%M%S)"
+  IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${TAG}"
+  gcloud builds submit --tag "${IMAGE}"
 fi
 
-echo ">>> Ensuring Secret Manager secret: ${SECRET_NAME}"
-if ! gcloud secrets describe "${SECRET_NAME}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
-  gcloud secrets create "${SECRET_NAME}" --replication-policy=automatic --project "${PROJECT_ID}"
-fi
-
-# Grant the runtime SA access to the secret
-gcloud secrets add-iam-policy-binding "${SECRET_NAME}" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project "${PROJECT_ID}" >/dev/null
-
-# If a license value is provided, add it as the latest version (overwrites via new version)
+# Secret Manager: license (if provided)
+SECRET_ARGS=()
 if [[ -n "${LICENSE_VALUE}" ]]; then
-  echo -n "${LICENSE_VALUE}" | gcloud secrets versions add "${SECRET_NAME}" \
-    --data-file=- --project "${PROJECT_ID}" >/dev/null
-fi
-
-# Build image if requested and IMAGE not explicitly provided
-if [[ "${BUILD_IMAGE}" == true ]]; then
-  REPO_LOCATION="${REGION}"
-  REPO_NAME="${REPO}"
-  AR_REPO="${REPO_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
-  if ! gcloud artifacts repositories describe "${REPO_NAME}" --location="${REPO_LOCATION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
-    echo ">>> Creating Artifact Registry repo: ${REPO_NAME} (${REPO_LOCATION})"
-    gcloud artifacts repositories create "${REPO_NAME}" \
-      --location="${REPO_LOCATION}" \
-      --repository-format=docker \
-      --description="App images" \
-      --project "${PROJECT_ID}"
+  hr
+  say "Storing license value in Secret Manager: ${SECRET_NAME}"
+  TMP="$(mktemp)"; printf "%s" "${LICENSE_VALUE}" > "${TMP}"
+  if gcloud secrets describe "${SECRET_NAME}" >/dev/null 2>&1; then
+    gcloud secrets versions add "${SECRET_NAME}" --data-file="${TMP}" >/dev/null
+  else
+    gcloud secrets create "${SECRET_NAME}" --replication-policy="automatic" --data-file="${TMP}" >/dev/null
   fi
-
-  IMAGE="${AR_REPO}/${SERVICE}:$(date +%Y%m%d-%H%M%S)"
-  echo ">>> Building image to ${IMAGE}"
-  gcloud builds submit --tag "${IMAGE}" --project "${PROJECT_ID}"
-elif [[ -z "${IMAGE}" ]]; then
-  echo "ERROR: No image specified (-i) and --build not set."
-  exit 2
+  rm -f "${TMP}"
+  SECRET_ARGS+=( --set-secrets="LICENSE_KEY=${SECRET_NAME}:latest" )
+  say "Secret configured; container will receive LICENSE_KEY via secrets."
 fi
 
-echo ">>> Deploying to Cloud Run..."
-DEPLOY_FLAGS=(
-  --project "${PROJECT_ID}"
-  --region "${REGION}"
-  --image "${IMAGE}"
-  --service-account "${SA_EMAIL}"
-  --port "${PORT}"
-  --cpu "${CPU}"
-  --memory "${MEM}"
-  --concurrency "${CONCURRENCY}"
-  --min-instances "${MIN_INSTANCES}"
-  --max-instances "${MAX_INSTANCES}"
-  --set-secrets "DNA_PROFILER_LICENSE=${SECRET_NAME}:latest"
+# Build deploy args
+AUTH_FLAG="--no-allow-unauthenticated"
+[[ "${ALLOW_UNAUTH}" == "true" ]] && AUTH_FLAG="--allow-unauthenticated"
+
+ENV_ARGS=()
+[[ -n "${ENV_VARS}" ]] && ENV_ARGS+=( --set-env-vars="${ENV_VARS}" )
+
+DEPLOY_ARGS=(
+  --project="${PROJECT_ID}"
+  --region="${REGION}"
+  --platform=managed
+  --image="${IMAGE}"
+  --service-account=""
+  --port="${PORT}"
+  --cpu="${CPU}"
+  --memory="${MEM}"
+  --concurrency="${CONCURRENCY}"
+  --min-instances="${MIN_INSTANCES}"
+  --max-instances="${MAX_INSTANCES}"
+  --timeout="${TIMEOUT}"
+  "${AUTH_FLAG}"
+  "${ENV_ARGS[@]}"
+  "${SECRET_ARGS[@]}"
 )
 
-if [[ "${ALLOW_UNAUTH}" == true ]]; then
-  DEPLOY_FLAGS+=(--allow-unauthenticated)
+hr
+say "Deploying ${SERVICE} to Cloud Run in ${REGION}..."
+gcloud run deploy "${SERVICE}" "${DEPLOY_ARGS[@]}"
+
+URL="$(gcloud run services describe "${SERVICE}" --region="${REGION}" --format='value(status.url)')"
+
+hr
+say "✅ Deployed"
+say "Service URL: ${URL}"
+if [[ "${ALLOW_UNAUTH}" == "true" ]]; then
+  say "Public access enabled. Try:  curl -s ${URL}"
+else
+  ACC="$(gcloud config get-value account 2>/dev/null || true)"
+  say "🔒 IAM-protected. Grant yourself access (example):"
+  say "  gcloud run services add-iam-policy-binding ${SERVICE} --region=${REGION} \\"
+  say "    --member='user:${ACC}' --role='roles/run.invoker'"
+  say "Then open: ${URL}"
 fi
-
-gcloud run deploy "${SERVICE}" "${DEPLOY_FLAGS[@]}"
-
-URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
-echo ">>> Deployed: ${URL}"
-echo "Done."
