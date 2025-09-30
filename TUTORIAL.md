@@ -9,11 +9,24 @@ Default is **private access** (auth required). You will be granted access automa
 If you’re not already in Cloud Shell, click the **“Open in Cloud Shell”** button on our website. It will open this repo with the deploy script ready.
 
 ---
+## 2) Determine the Project you would like to use.
+In the terminal:
 
-## 2) Run the script (zero-config)
+chmod +x start.sh oneclick.sh
+./start.sh
+
+# If you already know your project ID and prefer no wizard:
+./oneclick.sh -p "<YOUR_PROJECT_ID>" -r "europe-west3" -s "dnaprofiler"
+
+## 3) Run the script (zero-config)
 In the terminal:
 
 ./deploy/oneclick.sh
+
+# if you ever see "permission denied"
+bash oneclick.sh
+# or
+chmod +x oneclick.sh && ./oneclick.sh
 
 
 The script will:
@@ -33,7 +46,7 @@ The script will:
 
 ---
 
-## 3) Open the service
+## 4) Open the service
 At the end, the script prints a URL like:
 
 https://YOUR-SERVICE-******-a.run.app
