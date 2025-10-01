@@ -1,161 +1,80 @@
-DNA Profiler — One-Click Deploy (GCP)
+# DNA Profiler — One-Click Deploy (GCP)
 
-Fast, trustworthy data profiling & matching for migrations, quality, and MDM—deploy to Google Cloud Run in minutes, secure by default.
+**Fast, trustworthy data profiling & matching** for migrations, data quality, and MDM — deploy to **Google Cloud Run** in minutes, **secure by default**.
 
-<a target="_blank" rel="noopener noreferrer" href="https://ssh.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/vanoostenaarnout-ui/dnaprofiler-oneclick.git&cloudshell_git_branch=main&cloudshell_tutorial=TUTORIAL.md&cloudshell_open_in_editor=start.sh"> <img alt="Open in Google Cloud Shell" src="https://gstatic.com/cloudssh/images/open-btn.png" /> </a>
-Why DNA Profiler?
+<p>
+  <a target="_blank" rel="noopener noreferrer" href="https://ssh.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/vanoostenaarnout-ui/dnaprofiler-oneclick.git&cloudshell_git_branch=main&cloudshell_tutorial=TUTORIAL.md&cloudshell_open_in_editor=start.sh">
+    <img alt="Open in Google Cloud Shell" src="https://gstatic.com/cloudssh/images/open-btn.png" />
+  </a>
+</p>
 
-See truth fast: profile large CSV/Parquet datasets quickly with a Go-powered engine optimized for speed.
+---
 
-Ship with confidence: surface schema, type inference, anomalies, outliers, and data-quality failures before they hit production.
+## 🔗 Quick links
 
-Kill dupes early: optional matching/deduplication and entity resolution help collapse duplicates and link entities across files.
+- ▶️ **Deploy now:** click the button above, then run `./start.sh`
+- 📦 **Container image:** `ghcr.io/vanoostenaarnout-ui/erengine:latest`
+- 📘 **Tutorial:** `TUTORIAL.md`
+- 🔒 **License:** proprietary — see `LICENSE`
 
-Fit your stack: containerized HTTP service for Cloud Run/App Runner/ACA, plus a CLI for local batch runs.
+---
 
-Own your data: runs in your cloud project, with IAM-protected defaults.
+## ✨ Why DNA Profiler
 
-Capabilities (at a glance)
+- **See truth fast** — Go-powered engine profiles large CSV/Parquet quickly.  
+- **Quality you can trust** — schema/type inference, anomalies, outliers, and DQ rule failures.  
+- **Reduce duplicates** — optional matching/dedupe + entity resolution with explainability.  
+- **Own your data** — runs in *your* cloud project; defaults to **IAM-protected**.  
+- **Two modes** — containerized HTTP service (Cloud Run/App Runner/ACA) and CLI for batch.
 
-Profiling & statistics
+---
 
-Field distributions, nulls/empties, min/max/length histograms
+## 🧩 Capabilities at a glance
 
-Type & format inference (dates, numbers, emails, phones, etc.)
+### Profiling & Stats
+- Distributions, nulls, min/max, length histograms  
+- Type & format inference (dates, numbers, email, phone, etc.)  
+- Outlier/anomaly hints for rapid triage
 
-Outlier & anomaly hints for rapid triage
+### Data Quality
+- Configurable **DQ rules** (required/unique/range/regex/format)  
+- **Fail-fast** option; structured JSON for CI/CD gates  
+- Extensible regex library (plug in your field/MDM rules)
 
-Data Quality
+### Matching / Entity Resolution *(optional)*
+- Fuzzy/exact strategies with stable keys  
+- Dedupe within files; link entities across files (ER mode)  
+- Scores + “why it matched” trail
 
-Configurable DQ rules (required/unique/range/regex/format)
+### Outputs
+- JSON & CSV summaries + downloadable details  
+- Ready for dashboards, notebooks, or automated checks
 
-Fail-fast option for pipelines; structured JSON reports for CI
+### Operations
+- Stateless container; autoscaling on Cloud Run  
+- **Secure by default** (no public access unless you opt in)
 
-Pluggable regex library (extend your field/MDM rules)
+---
 
-Matching / Entity Resolution (optional)
+## 🚀 Quickstart (One-Click)
 
-Fuzzy/exact strategies with stable keys
+1. **Open Cloud Shell** with the button at the top of this page.  
+2. In the Cloud Shell terminal:
+   ```bash
+   chmod +x start.sh oneclick.sh
+   ./start.sh
 
-Dedupe within files; link entities across files (ER mode)
+### The wizard will
 
-Scores + explainability trail (what matched & why)
+- Detect (or help create) a **GCP project**
+- Enable APIs: `run.googleapis.com`, `artifactregistry.googleapis.com`, `cloudbuild.googleapis.com`
+- Deploy to **Cloud Run**
 
-Outputs
+After deploy, copy the printed **Service URL**. Because we default to IAM-only, grant yourself access:
 
-JSON and CSV summaries; downloadable detail files
-
-Ready for dashboards, notebooks, or automated gates
-
-Operations
-
-Stateless container; horizontal scaling on Cloud Run
-
-Security by default (IAM only, unless you explicitly allow public)
-
-What this repo contains
-
-This is the installer for a frictionless, one-click deployment:
-
-start.sh — guided setup (auto-detects/creates project, enables APIs)
-
-oneclick.sh — deploys the service to Cloud Run
-
-TUTORIAL.md — step-by-step instructions with copy-paste commands
-
-The application image is published separately to GHCR:
-ghcr.io/vanoostenaarnout-ui/erengine:latest
-(You can later mirror to ghcr.io/dnahub/erengine:latest and update the scripts.)
-
-One-click Quickstart
-
-Click Open in Google Cloud Shell (above).
-
-In the terminal:
-
-chmod +x start.sh oneclick.sh
-./start.sh
-
-
-The wizard will:
-
-Detect or help you create a GCP project
-
-Enable required APIs (run.googleapis.com, artifactregistry.googleapis.com, cloudbuild.googleapis.com)
-
-Deploy the service on Cloud Run
-
-The script prints your Service URL. Since we default to IAM-protected:
-
+```bash
 gcloud run services add-iam-policy-binding dnaprofiler \
   --region=europe-west3 \
   --member="user:$(gcloud config get-value account)" \
   --role="roles/run.invoker"
 
-
-Prefer no wizard?
-
-./oneclick.sh -p "<YOUR_PROJECT_ID>" -r "europe-west3" -s "dnaprofiler"
-# or pin the exact image:
-./oneclick.sh -p "<YOUR_PROJECT_ID>" -i "ghcr.io/vanoostenaarnout-ui/erengine:latest"
-
-Configuration
-
-You can pass env vars (comma-separated) and secrets at deploy time:
-
-Setting	How	Notes
-Region	-r europe-west3	Change to your preferred region
-Service name	-s dnaprofiler	Any valid Cloud Run service name
-Image	-i ghcr.io/...:tag	Public GHCR tag or digest
-Env vars	--env "LOG_LEVEL=info,FEATURE_X=1"	For feature flags & tuning
-License key	-l "<YOUR_LICENSE>"	Stored in Secret Manager as LICENSE_KEY
-Public access	--allow-unauth	Not recommended by default
-Licensing
-
-This software is proprietary and licensed by DNAHub Ltd.
-
-You may deploy for evaluation in your own cloud.
-
-Production use requires a license key. If your build enforces a key, provide it during deploy:
-
-./oneclick.sh -l "<YOUR_LICENSE_KEY>"
-
-
-The key is stored in Secret Manager and exposed to the container as LICENSE_KEY.
-
-Need a key or pricing? Contact: licensing@dnahub.example
-
-(Replace with your real contact page/email.)
-
-Security & Privacy
-
-IAM-protected by default (no public access unless you opt in).
-
-Secrets via Secret Manager (not plain envs).
-
-Runs entirely in your GCP project; data stays in your environment.
-
-For private networks: front with a private load balancer and set Cloud Run ingress accordingly.
-
-Roadmap
-
-Azure one-click (Azure Container Apps)
-
-AWS one-click (App Runner)
-
-Prebuilt Terraform for enterprise baselines (VPC, LB, policies)
-
-Troubleshooting
-
-403 on service URL → grant roles/run.invoker to your user (see Quickstart).
-
-Cannot enable services → your account lacks permissions; ask a project owner to enable run, artifactregistry, cloudbuild.
-
-Script “permission denied” → run bash oneclick.sh; ensure *.sh has LF endings and exec bit (we ship .gitattributes + set the bit in git).
-
-Image pull fails → ensure the GHCR package is Public (Package → Settings → Danger Zone → Change visibility: Public).
-
-License
-
-Copyright © 2025 DNAHub Ltd.
-All rights reserved. See LICENSE for terms.
