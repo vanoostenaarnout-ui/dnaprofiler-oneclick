@@ -16,7 +16,7 @@ PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)
 REGION="${REGION:-europe-west3}"
 SERVICE="${SERVICE:-dnaprofiler}"
 
-IMAGE="${IMAGE:-ghcr.io/dnahub/erengine:latest}"   # override with -i if you have a different image
+IMAGE="${IMAGE:-ghcr.io/vanoostenaarnout-ui/erengine:latest}"   # override with -i if you have a different image
 LICENSE_VALUE="${LICENSE_VALUE:-}"                 # -l to set via Secret Manager
 SECRET_NAME="${SECRET_NAME:-dna-profiler-license}"
 
